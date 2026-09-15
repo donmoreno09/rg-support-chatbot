@@ -1,27 +1,35 @@
 import azure.functions as func
-import datetime
 import json
-import logging
+from services.chat_service import ChatService
+from domain.interfaces import ILLMClient, IRetriever
 
 app = func.FunctionApp()
 
-@app.route(route="http_trigger", auth_level=func.AuthLevel.ANONYMOUS)
-def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('Python HTTP trigger function processed a request.')
 
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            name = req_body.get('name')
+class EchoLLMClient(ILLMClient):
+    """Finto LLM: ripete il messaggio. Lo sostituiamo con Azure OpenAI in Fase 2."""
 
-    if name:
-        return func.HttpResponse(f"Hello, {name}. This HTTP triggered function executed successfully.")
-    else:
-        return func.HttpResponse(
-             "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response.",
-             status_code=200
-        )
+    def complete(self, prompt: str, context: list[str]) -> str:
+        return f"hai detto: {prompt}"
+
+
+class EmptyRetriever(IRetriever):
+    """Nessun contesto per ora. Lo sostituiamo con Azure AI Search in Fase 3."""
+
+    def retrieve(self, query: str) -> list[str]:
+        return []
+
+
+chat_service = ChatService(retriever=EmptyRetriever(), llm=EchoLLMClient())
+
+
+@app.route(route="chat", auth_level=func.AuthLevel.ANONYMOUS)
+def chat(req: func.HttpRequest) -> func.HttpResponse:
+    body = req.get_json()
+    message = body.get("message", "")
+    reply = chat_service.handle(message)
+    return func.HttpResponse(
+        json.dumps({"reply": reply}),
+        mimetype="application/json",
+        status_code=200
+    )
