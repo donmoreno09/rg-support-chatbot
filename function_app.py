@@ -3,6 +3,8 @@ import json
 from services.chat_service import ChatService
 from domain.interfaces import ILLMClient, IRetriever
 from infrastructure.azure_openai_client import AzureOpenAIClient
+from infrastructure.azure_search_retriever import AzureSearchRetriever
+from infrastructure.azure_openai_embedding_client import AzureOpenAIEmbeddingClient
 
 app = func.FunctionApp()
 
@@ -21,7 +23,18 @@ class EmptyRetriever(IRetriever):
         return []
 
 
-chat_service = ChatService(retriever=EmptyRetriever(), llm=AzureOpenAIClient(
+embedding_client = AzureOpenAIEmbeddingClient(
+    endpoint="https://oai-support-chatbot.openai.azure.com/",
+    deployment="embed-deploy",
+)
+
+retriever = AzureSearchRetriever(
+    endpoint="https://search-supportchatbot-don.search.windows.net",
+    index_name="faq",
+    embedding_client=embedding_client,
+)
+
+chat_service = ChatService(retriever=retriever, llm=AzureOpenAIClient(
     endpoint="https://oai-support-chatbot.openai.azure.com/", deployment="chat-deploy"))
 
 
