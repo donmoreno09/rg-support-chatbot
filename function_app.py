@@ -5,6 +5,7 @@ from domain.interfaces import ILLMClient, IRetriever
 from infrastructure.azure_openai_client import AzureOpenAIClient
 from infrastructure.azure_search_retriever import AzureSearchRetriever
 from infrastructure.azure_openai_embedding_client import AzureOpenAIEmbeddingClient
+from infrastructure.app_insights_telemetry_client import AppInsightsTelemetryClient
 
 app = func.FunctionApp()
 
@@ -34,8 +35,10 @@ retriever = AzureSearchRetriever(
     embedding_client=embedding_client,
 )
 
-chat_service = ChatService(retriever=retriever, llm=AzureOpenAIClient(
-    endpoint="https://oai-support-chatbot.openai.azure.com/", deployment="chat-deploy"))
+telemetry = AppInsightsTelemetryClient()
+
+chat_service = ChatService(retriever=retriever, llm_client=AzureOpenAIClient(
+    endpoint="https://oai-support-chatbot.openai.azure.com/", deployment="chat-deploy"), telemetry=telemetry,)
 
 
 @app.route(route="chat", auth_level=func.AuthLevel.ANONYMOUS)
