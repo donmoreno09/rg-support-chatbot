@@ -2,6 +2,7 @@ import azure.functions as func
 import json
 from services.chat_service import ChatService
 from domain.interfaces import ILLMClient, IRetriever
+from infrastructure.azure_openai_client import AzureOpenAIClient
 
 app = func.FunctionApp()
 
@@ -20,7 +21,8 @@ class EmptyRetriever(IRetriever):
         return []
 
 
-chat_service = ChatService(retriever=EmptyRetriever(), llm=EchoLLMClient())
+chat_service = ChatService(retriever=EmptyRetriever(), llm=AzureOpenAIClient(
+    endpoint="https://oai-support-chatbot.openai.azure.com/", deployment="chat-deploy"))
 
 
 @app.route(route="chat", auth_level=func.AuthLevel.ANONYMOUS)
