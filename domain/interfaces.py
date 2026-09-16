@@ -25,3 +25,13 @@ class ITelemetryClient(ABC):
 
     @abstractmethod
     def track_exception(self, properties: dict | None = None) -> None: ...
+
+
+class IQueuePublisher(ABC):
+    """Astrazione per instradare un lavoro verso elaborazione asincrona.
+    L'endpoint HTTP dipende da questa interfaccia, non da come Azure Storage
+    Queue funziona nel dettaglio — se domani cambi meccanismo (es. Service Bus),
+    non tocchi function_app.py."""
+
+    @abstractmethod
+    def publish(self, message: dict) -> None: ...
