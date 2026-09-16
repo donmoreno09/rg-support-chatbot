@@ -7,3 +7,7 @@ class ILLMClient(Protocol):
 
 class IRetriever(Protocol):
     def retrieve(self, query: str) -> list[str]: ...
+
+
+class IEmbeddingClient(Protocol):
+    def embed(self, text: str) -> list[float]: ...
