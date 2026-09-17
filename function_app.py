@@ -10,25 +10,11 @@ from infrastructure.azure_search_retriever import AzureSearchRetriever
 from infrastructure.azure_openai_embedding_client import AzureOpenAIEmbeddingClient
 from infrastructure.app_insights_telemetry_client import AppInsightsTelemetryClient
 from infrastructure.azure_queue_publisher import AzureQueuePublisher
+from infrastructure.webhook_ticket_service import WebhookTicketService
 
 COMPLEXITY_THRESHOLD = 200  # caratteri — soglia arbitraria, solo per simulare il caso
 
 app = func.FunctionApp()
-
-
-class EchoLLMClient(ILLMClient):
-    """Finto LLM: ripete il messaggio. Lo sostituiamo con Azure OpenAI in Fase 2."""
-
-    def complete(self, prompt: str, context: list[str]) -> str:
-        return f"hai detto: {prompt}"
-
-
-class EmptyRetriever(IRetriever):
-    """Nessun contesto per ora. Lo sostituiamo con Azure AI Search in Fase 3."""
-
-    def retrieve(self, query: str) -> list[str]:
-        return []
-
 
 embedding_client = AzureOpenAIEmbeddingClient(
     endpoint="https://oai-support-chatbot.openai.azure.com/",
@@ -43,8 +29,19 @@ retriever = AzureSearchRetriever(
 
 telemetry = AppInsightsTelemetryClient()
 
-chat_service = ChatService(retriever=retriever, llm_client=AzureOpenAIClient(
-    endpoint="https://oai-support-chatbot.openai.azure.com/", deployment="chat-deploy"), telemetry=telemetry,)
+ticket_service = WebhookTicketService(
+    webhook_url="https://webhook.site/557ea5b1-bd88-42db-89b9-52196baea28c",
+)
+
+chat_service = ChatService(
+    retriever=retriever,
+    llm_client=AzureOpenAIClient(
+        endpoint="https://oai-support-chatbot.openai.azure.com/",
+        deployment="chat-deploy",
+    ),
+    telemetry=telemetry,
+    ticket_service=ticket_service,
+)
 
 
 @app.route(route="chat", auth_level=func.AuthLevel.ANONYMOUS)

@@ -35,3 +35,13 @@ class IQueuePublisher(ABC):
 
     @abstractmethod
     def publish(self, message: dict) -> None: ...
+
+class ITicketService(ABC):
+    """Astrazione per l'apertura di un ticket quando il bot non trova contesto
+    sufficiente per rispondere con sicurezza. Chi la usa non sa se dietro c'è
+    un vero sistema di ticketing enterprise o, come in questo progetto
+    dimostrativo, un webhook fittizio — se domani cambia il sistema reale,
+    non si tocca ChatService."""
+
+    @abstractmethod
+    def create_ticket(self, message: str, reason: str) -> str: ...

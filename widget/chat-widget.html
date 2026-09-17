@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Support Chatbot</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 480px;
+            margin: 40px auto;
+        }
+
+        #chat-box {
+            border: 1px solid #ccc;
+            padding: 12px;
+            height: 320px;
+            overflow-y: auto;
+            margin-bottom: 8px;
+        }
+
+        #chat-box p {
+            margin: 4px 0;
+        }
+
+        #chat-input {
+            width: 75%;
+            padding: 6px;
+        }
+
+        button {
+            padding: 6px 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <h3>Support Chatbot</h3>
+    <div id="chat-box"></div>
+    <input id="chat-input" type="text" placeholder="Scrivi un messaggio...">
+    <button onclick="sendMessage()">Invia</button>
+
+    <script>
+        const FUNCTION_URL = "http://localhost:7071/api/chat"; // cambia con l'URL pubblico dopo il deploy
+
+        async function sendMessage() {
+            const input = document.getElementById("chat-input");
+            const text = input.value.trim();
+            if (!text) return;
+            appendMessage("Tu", text);
+            input.value = "";
+
+            try {
+                const res = await fetch(FUNCTION_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: text })
+                });
+                const data = await res.json();
+                appendMessage("Bot", data.reply ?? `Richiesta accettata (id: ${data.request_id})`);
+            } catch (err) {
+                appendMessage("Errore", "Impossibile contattare il bot: " + err.message);
+            }
+        }
+
+        function appendMessage(sender, text) {
+            const box = document.getElementById("chat-box");
+            box.innerHTML += `<p><strong>${sender}:</strong> ${text}</p>`;
+            box.scrollTop = box.scrollHeight;
+        }
+    </script>
+</body>
+
+</html>
