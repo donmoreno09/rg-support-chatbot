@@ -1,0 +1,74 @@
+Domande Azure Progettino rg-supporto-chatbot
+
+1.) Nella fase deploy, cosa è veramente stato deployato?
+2.) Identity (Object ID) e56df1ff-f2bc-4d02-82fa-b6cfe9e5a94a da func app -> settings -> Identity
+
+
+
+
+
+Notes:
+1.) Una pipeline RAG normalmente prevede una fase di ingestion in cui i documenti vengono suddivisi in chunk, trasformati in embeddings e indicizzati in un sistema di ricerca vettoriale come Azure AI Search. Quando arriva una domanda, anche la query viene elaborata e utilizzata per recuperare i chunk semanticamente più rilevanti. Questi contenuti vengono poi inseriti nel contesto della richiesta inviata all'LLM, che genera la risposta basandosi sulle informazioni recuperate.
+2.) Azure AI Search è il servizio di Microsoft Azure che permette di indicizzare e cercare informazioni, ed è particolarmente importante quando costruisci una soluzione RAG.
+3.) 
+Cos'è davvero un embedding (in termini intuitivi)
+
+Un embedding è un punto in uno spazio con molte dimensioni (il modello text-embedding-3-small che usi nel progetto produce vettori a 1536 dimensioni — non 2 o 3 come nello spazio fisico, ma il principio è lo stesso). Il modello è stato addestrato in modo che:
+
+- testi con significato simile finiscano in punti vicini in questo spazio
+- testi con significato diverso finiscano lontani
+
+Esempio concreto dal tuo dominio: "non riesco ad accedere" e "problema di login" userebbero parole completamente diverse, ma il modello li piazzerebbe vicini nello spazio, perché significano la stessa cosa. Una ricerca per parole esatte (BM25) non li collegherebbe mai; una ricerca vettoriale sì. È questo il vantaggio che stavamo discutendo prima.
+
+Come si misura la "vicinanza"
+
+Non si usa la distanza in linea retta come penseresti a scuola (quella si chiama distanza euclidea ed esiste, ma non è quella usata qui). Nel tuo progetto si usa la similarità coseno: invece di misurare quanto sono lontani due punti, misura quanto puntano nella stessa direzione dall'origine.
+
+vettore A: →  (punta verso destra)
+vettore B: ↗  (punta verso destra e un po' su)
+vettore C: ↑  (punta dritto verso l'alto)
+
+A e B puntano quasi nella stessa direzione → similarità coseno alta (vicina a 1). A e C puntano in direzioni molto diverse → similarità coseno bassa (vicina a 0). Il risultato è sempre un numero tra 0 e 1 (per vettori con valori positivi come questi embedding) — è esattamente il numero che vedi in r["@search.score"] nel tuo AzureSearchRetriever, confrontato con self._score_threshold (0.60).
+
+Perché coseno e non distanza euclidea? Perché il coseno ignora la "lunghezza" del vettore e guarda solo la direzione — più robusto quando confronti testi di lunghezza diversa, che tendono a produrre vettori di grandezza diversa anche se il significato è simile.
+
+Come avviene il confronto "con quelli già esistenti"
+
+Qui la parte che probabilmente non hai ancora visto: durante l'indicizzazione (il wizard "Import data" di Fase 3), Azure AI Search ha già calcolato un embedding per ogni chunk delle tue 10 FAQ e li ha salvati nel campo text_vector dell'indice. Quando arriva una query:
+
+1. Il tuo codice calcola l'embedding solo della domanda (quello che fa embed())
+2. Azure AI Search calcola la similarità coseno tra quel vettore e ogni vettore già indicizzato
+3. Ordina tutti i risultati dal più simile al meno simile
+4. Ritorna i primi k_nearest_neighbors=3 (i "3 vicini più prossimi" — è letteralmente questo che significa quel parametro)
+
+In teoria, con pochi documenti (le tue 10 FAQ) questo confronto potrebbe essere fatto "a forza bruta" — calcola la similarità con tutti e ordina. In produzione con milioni di documenti sarebbe troppo lento farlo così; Azure AI Search (come la maggior parte dei vector database) usa internamente una struttura dati chiamata HNSW (Hierarchical Navigable Small World) — in pratica un grafo che permette di trovare i vicini più prossimi senza confrontare ogni singolo vettore, sacrificando un po' di precisione per una velocità enormemente maggiore. Non serve che tu implementi nulla di questo: è gestito internamente da Azure AI Search, ma sapere che esiste ("ricerca approssimata dei vicini più prossimi", ANN) è un buon dettaglio da citare se ti chiedono "come scala la vector search su grandi volumi".
+
+Il collegamento con il codice che hai già letto
+
+vector = self._embedding_client.embed(query)        # 1. calcola SOLO l'embedding della domanda
+vector_query = VectorizedQuery(
+    vector=vector, k_nearest_neighbors=3, ...)       # 2. "dammi i 3 più vicini"
+results = self._client.search(..., top=3)            # 3. Azure fa il confronto con TUTTI i vettori già indicizzati
+return [r["chunk"] for r in results
+        if r["@search.score"] >= self._score_threshold]  # 4. tieni solo quelli abbastanza vicini (coseno ≥ 0.60)
+
+Il tuo codice non calcola mai la similarità lui stesso — chiede ad Azure AI Search "trovami i più vicini", e riceve indietro sia il testo (chunk) sia il punteggio di similarità già calcolato (@search.score), che poi filtri con la tua soglia.
+
+4.)  "La ricerca vettoriale è un metodo di ricerca che, invece di confrontare parole esatte, confronta il significato di due testi. Sia la domanda dell'utente sia ogni documento della base di conoscenza vengono trasformati in un vettore numerico — un embedding — tramite un modello di AI. Poi si cerca quale vettore tra quelli già indicizzati è più 'vicino' matematicamente al vettore della domanda: più sono vicini, più i due testi sono simili nel significato, anche se usano parole diverse."
+"Trasformo testo in numeri che catturano il significato, e cerco per vicinanza matematica invece che per parole esatte — così 'non riesco ad accedere' e 'problema di login' vengono trovati come la stessa cosa, anche se non condividono nemmeno una parola."
+
+5.) E' un chatbot di supporto tecnico su Azure Functions in Python, basato su architettura RAG — Retrieval-Augmented Generation, cioè: prima di far rispondere il modello, recupero il contesto pertinente da una base di conoscenza, così non risponde a memoria ma sui documenti reali. Il retrieval lo fa Azure AI Search con ricerca vettoriale — la domanda e i documenti vengono trasformati in embedding, vettori numerici che catturano il significato, e confronto quelli per similarità invece che per parole esatte. La generazione la fa Azure OpenAI, autenticato con Managed Identity — nessuna API key in chiaro da nessuna parte. Il sistema gestisce anche l'elaborazione asincrona per richieste pesanti via coda, e fa escalation verso un ticket quando non trova contesto sufficiente, invece di far allucinare il modello. Tutto è osservabile tramite Application Insights.
+
+Sulla Function App attivo la Managed Identity — questo crea un'identità in Entra ID legata a quella risorsa specifica, senza password da gestire. Poi vado sulla risorsa che voglio chiamare, tipo Azure OpenAI, e nel suo Access Control assegno un ruolo a quell'identità — è lì che avviene davvero l'autorizzazione, non sulla Function App. Nel codice, DefaultAzureCredential si occupa solo di capire quale identità usare a seconda di dove gira: su Azure trova la Managed Identity in automatico, in locale usa la mia sessione az login — stesso codice, ambiente diverso. Il controllo vero se ho i permessi lo fa Azure OpenAI a ogni chiamata, verificando il ruolo assegnato sul token che riceve.
+
+Sulla Function App (func-supportchatbot-don) → menu Identity (nascosto dentro "Settings" nel menu laterale, se non compare in cima) → tab System assigned → On → Save → conferma nel popup.
+
+Cosa fa: crea un'identità Microsoft Entra ID "posseduta" dalla Function App stessa, senza che tu debba gestire password o chiavi. È il meccanismo con cui, una volta deployata su Azure, la Function potrà autenticarsi verso Azure OpenAI senza avere nessun segreto scritto nel codice o nella configurazione.
+
+"Lo storage in questo progetto ha due percorsi di accesso diversi sulla stessa risorsa. La mia Function App accede alla coda e al proprio bookkeeping interno tramite l'app setting AzureWebJobsStorage, che di default è una connection string con chiave — in locale punta all'emulatore Azurite, su Azure Azure stesso l'ha impostata automaticamente quando ho creato la Function App collegata allo storage account. Diverso invece l'accesso di Azure AI Search al Blob Storage, dove ho configurato esplicitamente Managed Identity con un ruolo IAM, coerente con l'approccio senza chiavi usato per Azure OpenAI. Non ho ancora esteso l'accesso identity-based anche al binding della coda — è un miglioramento possibile che conosco ma non ho implementato."
+
+Azure AI Search e Azure OpenAI non sono componenti che ho scritto io — sono servizi PaaS gestiti da Microsoft, che consumo come dipendenze esterne. La Function App ci parla via HTTPS, richieste REST sincrone, usando gli SDK ufficiali che impacchettano le chiamate HTTP in metodi Python — SearchClient.search() e AzureOpenAI.chat.completions.create(). Ogni richiesta porta un token Bearer ottenuto tramite Managed Identity, invece di una API key statica. Non c'è isolamento di rete — girano sulla rete pubblica — quindi la sicurezza è interamente demandata a IAM: senza un ruolo assegnato su quella risorsa, il token non basta a farti passare.
+
+Blob Storage, il servizio di archiviazione file di Azure
+
+Azure AI Search ha una procedura guidata pensata apposta per creare una pipeline RAG completa senza scrivere una riga di codice — collega un data source, genera automaticamente gli embedding tramite il tuo deployment Azure OpenAI, e crea da solo indice, schema (incluso il campo vettoriale), e il meccanismo che tiene tutto sincronizzato (l'"indexer"). Questa è la strada davvero "tutta da portale", più realistica di comporre a mano un JSON di schema

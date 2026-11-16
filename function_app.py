@@ -33,12 +33,14 @@ ticket_service = WebhookTicketService(
     webhook_url="https://webhook.site/557ea5b1-bd88-42db-89b9-52196baea28c",
 )
 
+llm_client = AzureOpenAIClient(
+    endpoint="https://oai-support-chatbot.openai.azure.com/",
+    deployment="chat-deploy",
+)
+
 chat_service = ChatService(
     retriever=retriever,
-    llm_client=AzureOpenAIClient(
-        endpoint="https://oai-support-chatbot.openai.azure.com/",
-        deployment="chat-deploy",
-    ),
+    llm_client=llm_client,
     telemetry=telemetry,
     ticket_service=ticket_service,
 )
@@ -62,6 +64,7 @@ def chat(req: func.HttpRequest, queueMsg: func.Out[str]) -> func.HttpResponse:
 
     reply = chat_service.handle(message)
     return func.HttpResponse(
+        # Serializzazione: Converte un oggetto in una stringa JSON per salvarlo o inviarlo.
         json.dumps({"reply": reply}),
         mimetype="application/json",
         status_code=200
